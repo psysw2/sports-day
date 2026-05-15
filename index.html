@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>陸運會系統</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .phase-badge { display:inline-block; padding:2px 10px; border-radius:9999px; font-size:12px; font-weight:600; }
+  .phase-1 { background:#dbeafe; color:#1d4ed8; }
+  .phase-2 { background:#fef3c7; color:#a16207; }
+  .phase-3 { background:#fecaca; color:#b91c1c; }
+</style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+
+<!-- 載入遮罩 -->
+<div id="loader" class="hidden fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
+  <div class="bg-white px-6 py-4 rounded-lg shadow-lg flex items-center gap-3">
+    <div class="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+    <span class="text-sm">載入中...</span>
+  </div>
+</div>
+
+<!-- 登入頁 -->
+<div id="loginPage" class="flex items-center justify-center min-h-screen p-4">
+  <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+    <div class="text-center mb-6">
+      <div class="text-5xl mb-2">🏃‍♂️</div>
+      <h1 class="text-2xl font-bold text-slate-800">陸運會報名系統</h1>
+    </div>
+    <input id="username" type="text" placeholder="帳號 / 學號" class="w-full p-3 border rounded-lg mb-3">
+    <input id="password" type="password" placeholder="密碼" class="w-full p-3 border rounded-lg mb-4">
+    <button onclick="doLogin()" class="w-full bg-indigo-600 text-white p-3 rounded-lg hover:bg-indigo-700 font-semibold">登入</button>
+    <p id="loginMsg" class="text-red-500 text-center mt-3 text-sm"></p>
+  </div>
+</div>
+
+<!-- 主介面 -->
+<div id="mainPage" class="hidden">
+  <nav class="bg-white shadow px-4 py-3 flex flex-wrap justify-between items-center gap-2">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">🏃</span>
+      <span class="font-bold text-slate-800">陸運會系統</span>
+      <span id="phaseBadge" class="phase-badge"></span>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+      <span id="userInfo" class="text-slate-600"></span>
+      <button onclick="logout()" class="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600">登出</button>
+    </div>
+  </nav>
+  <div class="p-4 max-w-7xl mx-auto">
+    <div id="tabs" class="flex flex-wrap gap-2 mb-4"></div>
+    <div id="content" class="bg-white p-4 md:p-6 rounded-xl shadow"></div>
+  </div>
+</div>
+
+<div id="toast" class="hidden fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-lg text-white z-50"></div>
+
+<script>
+// ⚠️ 改成你自己的 Apps Script Web App 網址
+const API_URL = 'https://script.google.com/macros/s/AKfycbzXrM7o4Z7aXNDvaChte4CZF_K1iJcqBE3LlkisO0aC55vMJsW8Avg1bFSIoChrgk7c1g/exec';
+
+let currentUser = null;
+let currentPhase = 1;
+
+// ========== API 呼叫(取代 google.script.run)==========
+async function apiCall(action, params = {}) {
+  showLoader(true);
+  try {
+    // 用 text/plain 避免 CORS preflight
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, ...params })
+    });
+    const data = await res.json();
+    if (data.error) {
+      toast('錯誤: ' + data.error, 'error');
+      console.error(data.error);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    toast('連線失敗: ' + err.message, 'error');
+    console.error(err);
+    return null;
+  } finally {
+    showLoader(false);
+  }
+}
+
+function showLoader(show) {
+  document.getElementById('loader').classList.toggle('hidden', !show);
+}
+
+function toast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  t.className = `fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-lg text-white z-50 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+  t.innerText = msg;
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 2500);
+}
+
+// ========== 登入 ==========
+async function doLogin() {
+  const u = document.getElementById('username').value.trim();
+  const p = document.getElementById('password').value;
+  if (!u || !p) return;
+  const res = await apiCall('login', { username: u, password: p });
+  if (!res) return;
+  if (res.success) {
+    currentUser = res.user;
+    currentPhase = Number(res.phase) || 1;
+    document.getElementById('loginPage').classList.add('hidden');
+    document.getElementById('mainPage').classList.remove('hidden');
+    // 把登入狀態存起來,重整不會掉登入
+    sessionStorage.setItem('user', JSON.stringify(currentUser));
+    sessionStorage.setItem('phase', currentPhase);
+    updateUserInfo();
+    buildTabs();
+  } else {
+    document.getElementById('loginMsg').innerText = res.message;
+  }
+}
+
+function logout() {
+  sessionStorage.clear();
+  location.reload();
+}
+
+// 自動恢復登入(若 session 還在)
+window.addEventListener('load', () => {
+  const u = sessionStorage.getItem('user');
+  const p = sessionStorage.getItem('phase');
+  if (u && p) {
+    currentUser = JSON.parse(u);
+    currentPhase = Number(p);
+    document.getElementById('loginPage').classList.add('hidden');
+    document.getElementById('mainPage').classList.remove('hidden');
+    updateUserInfo();
+    buildTabs();
+  }
+});
+
+function updateUserInfo() {
+  document.getElementById('userInfo').innerText = `${currentUser.name} (${roleLabel(currentUser.role)})`;
+  const labels = { 1: '階段一:報名中', 2: '階段二:編組', 3: '階段三:比賽計分' };
+  const badge = document.getElementById('phaseBadge');
+  badge.innerText = labels[currentPhase];
+  badge.className = `phase-badge phase-${currentPhase}`;
+}
+
+function roleLabel(r) {
+  return { admin: '管理員', teacher: '老師', student: '學生' }[r] || r;
+}
+
+function buildTabs() {
+  const tabs = document.getElementById('tabs');
+  let menu = [];
+  if (currentUser.role === 'student') {
+    if (currentPhase == 1) {
+      menu = [
+        { label: '🏆 可報項目', fn: 'showStudentRegister' },
+        { label: '📋 我的報名', fn: 'showMyRegs' }
+      ];
+    } else if (currentPhase == 2) {
+      menu = [{ label: '📋 我的賽程', fn: 'showMyRegs' }];
+    } else {
+      menu = [
+        { label: '📋 我的賽程', fn: 'showMyRegs' },
+        { label: '📊 即時計分板', fn: 'showLiveBoard' }
+      ];
+    }
+  } else {
+    menu = [
+      { label: '⚡ 階段控制', fn: 'showPhaseControl' },
+      { label: '👥 學生管理', fn: 'showStudents' },
+      { label: '🏆 項目管理', fn: 'showEvents' },
+      { label: '📋 報名情況', fn: 'showAllRegs' },
+      { label: '🎯 編組', fn: 'showHeatAssign' },
+      { label: '🏅 即時計分', fn: 'showScoring' },
+      { label: '📊 計分板', fn: 'showLiveBoard' },
+      { label: '⚙️ 系統設定', fn: 'showSettings' }
+    ];
+  }
+  tabs.innerHTML = menu.map(m =>
+    `<button onclick="${m.fn}()" class="bg-white px-3 py-2 rounded-lg shadow text-sm hover:bg-indigo-50 hover:text-indigo-700">${m.label}</button>`
+  ).join('');
+  if (menu.length > 0) window[menu[0].fn]();
+}
+
+function setContent(html) { document.getElementById('content').innerHTML = html; }
+function val(id) { return document.getElementById(id).value.trim(); }
+
+// ========== 階段一:學生報名 ==========
+async function showStudentRegister() {
+  if (currentPhase != 1) {
+    setContent(`<div class="text-center py-10 text-slate-500">報名階段已結束</div>`);
+    return;
+  }
+  const events = await apiCall('getAvailableEvents', { studentID: currentUser.username });
+  if (!events) return;
+  let html = `
+    <h2 class="text-xl font-bold mb-1">可報名項目</h2>
+    <p class="text-sm text-slate-500 mb-4">${currentUser.Group}組 / ${currentUser.Gender} / ${currentUser.House}社</p>
+    <div class="grid gap-3">
+    ${events.length === 0 ? '<p class="text-slate-400">暫無可報名項目</p>' : events.map(e => `
+      <div class="border rounded-lg p-4 flex flex-wrap justify-between items-center gap-2 ${e.registered ? 'bg-green-50 border-green-300' : ''}">
+        <div>
+          <div class="font-semibold">${e.EventID} · ${e.EventName}</div>
+          <div class="text-xs text-slate-500 mt-1">本社 ${e.houseCount}/${e.MaxPerHouse}</div>
+        </div>
+        ${e.registered 
+          ? '<span class="text-green-600 font-semibold text-sm">✓ 已報名</span>'
+          : (e.full 
+              ? '<span class="text-slate-400 text-sm">已滿額</span>'
+              : `<button onclick="register('${e.EventID}')" class="bg-indigo-500 text-white px-4 py-2 rounded text-sm">報名</button>`)}
+      </div>`).join('')}
+    </div>`;
+  setContent(html);
+}
+
+async function register(eventID) {
+  const res = await apiCall('registerEvent', { studentID: currentUser.username, eventID });
+  if (!res) return;
+  toast(res.success ? '報名成功!' : res.message, res.success ? 'success' : 'error');
+  if (res.success) showStudentRegister();
+}
+
+async function showMyRegs() {
+  const regs = await apiCall('getMyRegistrations', { studentID: currentUser.username });
+  if (!regs) return;
+  let html = `<h2 class="text-xl font-bold mb-4">我的報名</h2>`;
+  if (regs.length === 0) {
+    html += '<p class="text-slate-400">尚未報名</p>';
+  } else {
+    html += `<table class="w-full text-sm"><thead class="bg-slate-100"><tr>
+      <th class="p-2 text-left">項目</th><th class="p-2">Heat</th><th class="p-2">Lane</th>
+      ${currentPhase == 1 ? '<th class="p-2"></th>' : ''}
+    </tr></thead><tbody>
+    ${regs.map(r => `<tr class="border-b">
+      <td class="p-2">${r.EventID} · ${r.EventName}</td>
+      <td class="p-2 text-center">${r.Heat || '-'}</td>
+      <td class="p-2 text-center">${r.Lane || '-'}</td>
+      ${currentPhase == 1 ? `<td class="p-2"><button onclick="withdraw('${r.RegID}')" class="text-red-500 text-xs">退出</button></td>` : ''}
+    </tr>`).join('')}</tbody></table>`;
+  }
+  setContent(html);
+}
+
+async function withdraw(regID) {
+  if (!confirm('確定退出?')) return;
+  const res = await apiCall('withdrawEvent', { studentID: currentUser.username, regID });
+  if (res && res.success) { toast('已退出'); showMyRegs(); }
+}
+
+// ========== 老師後台(略,結構同上,把 google.script.run.xxx() 換成 await apiCall('xxx', {...}) ==========
+// 為節省篇幅,以下函數請參照同樣模式改寫:
+// showPhaseControl, switchPhase, showStudents, addStudent, showEvents, addEvent, delEvent,
+// showAllRegs, showHeatAssign, autoHeat, showScoring, loadScoringForm, submitScores,
+// showLiveBoard, showSettings, addRankRow, saveRankPoints, saveGeneral
+
+// 範例:階段控制
+async function showPhaseControl() {
+  const phases = [
+    { num: 1, name: '報名階段', desc: '學生選擇項目' },
+    { num: 2, name: '審視編組', desc: '結算社參與分,自動編 Heat' },
+    { num: 3, name: '比賽計分', desc: '輸入成績' }
+  ];
+  let html = `<h2 class="text-xl font-bold mb-4">⚡ 階段控制</h2>
+    <div class="grid md:grid-cols-3 gap-4">
+    ${phases.map(p => `
+      <div class="border-2 rounded-lg p-5 ${currentPhase == p.num ? 'border-indigo-500 bg-indigo-50' : ''}">
+        <div class="text-xs text-slate-500">階段 ${p.num}</div>
+        <div class="text-lg font-bold mt-1">${p.name}</div>
+        <div class="text-sm text-slate-600 mt-2">${p.desc}</div>
+        ${currentPhase == p.num 
+          ? '<div class="mt-4 text-indigo-600 font-semibold">● 目前階段</div>'
+          : `<button onclick="switchPhase(${p.num})" class="mt-4 bg-slate-700 text-white px-3 py-1 rounded text-sm">切換</button>`}
+      </div>`).join('')}
+    </div>`;
+  setContent(html);
+}
+
+async function switchPhase(p) {
+  if (!confirm(`確定切換到階段 ${p}?`)) return;
+  const res = await apiCall('changePhase', { newPhase: p });
+  if (res && res.success) {
+    currentPhase = res.phase;
+    sessionStorage.setItem('phase', currentPhase);
+    updateUserInfo();
+    toast('階段已切換');
+    showPhaseControl();
+  }
+}
+
+// 範例:即時計分板
+async function showLiveBoard() {
+  const scores = await apiCall('calculateHouseScores');
+  const individuals = await apiCall('calculateIndividualRanking');
+  if (!scores || !individuals) return;
+  const colors = { '信': 'from-red-500 to-red-700', '望': 'from-yellow-500 to-yellow-600', '愛': 'from-green-500 to-green-700', '恩': 'from-blue-500 to-blue-700' };
+  const trophies = ['🥇', '🥈', '🥉', '4️⃣'];
+  let html = `<h2 class="text-xl font-bold mb-4">📊 即時計分板</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    ${scores.map((s, i) => `
+      <div class="bg-gradient-to-br ${colors[s.name]} text-white p-5 rounded-xl shadow-lg">
+        <div class="flex justify-between"><div class="text-3xl">${trophies[i] || ''}</div>
+        <div class="text-xs bg-white/20 px-2 py-1 rounded">第 ${s.rank} 名</div></div>
+        <div class="text-3xl font-bold mt-3">${s.name}社</div>
+        <div class="text-4xl font-bold mt-1">${s.total}<span class="text-lg ml-1">分</span></div>
+        <div class="text-xs mt-3 opacity-90">比賽 ${s.score} + 參與 ${s.participation}</div>
+      </div>`).join('')}
+    </div>
+    <div class="text-center"><button onclick="showLiveBoard()" class="bg-slate-700 text-white px-4 py-2 rounded text-sm">🔄 重新整理</button></div>`;
+  setContent(html);
+}
+
+// (其他函數請依此模式改寫)
+</script>
+</body>
+</html>
