@@ -261,6 +261,65 @@ async function withdraw(regID) {
 // ========== 以下為補齊的老師/管理員後台功能 ==========
 // ============================================================
 
+// 範例:階段控制
+async function showPhaseControl() {
+  const phases = [
+    { num: 1, name: '報名階段', desc: '學生選擇項目' },
+    { num: 2, name: '審視編組', desc: '結算社參與分,自動編 Heat' },
+    { num: 3, name: '比賽計分', desc: '輸入成績' }
+  ];
+  let html = `<h2 class="text-xl font-bold mb-4">⚡ 階段控制</h2>
+    <div class="grid md:grid-cols-3 gap-4">
+    ${phases.map(p => `
+      <div class="border-2 rounded-lg p-5 ${currentPhase == p.num ? 'border-indigo-500 bg-indigo-50' : ''}">
+        <div class="text-xs text-slate-500">階段 ${p.num}</div>
+        <div class="text-lg font-bold mt-1">${p.name}</div>
+        <div class="text-sm text-slate-600 mt-2">${p.desc}</div>
+        ${currentPhase == p.num 
+          ? '<div class="mt-4 text-indigo-600 font-semibold">● 目前階段</div>'
+          : `<button onclick="switchPhase(${p.num})" class="mt-4 bg-slate-700 text-white px-3 py-1 rounded text-sm">切換</button>`}
+      </div>`).join('')}
+    </div>`;
+  setContent(html);
+}
+
+async function switchPhase(p) {
+  if (!confirm(`確定切換到階段 ${p}?`)) return;
+  const res = await apiCall('changePhase', { newPhase: p });
+  if (res && res.success) {
+    currentPhase = res.phase;
+    sessionStorage.setItem('phase', currentPhase);
+    updateUserInfo();
+    toast('階段已切換');
+    showPhaseControl();
+  }
+}
+
+// 範例:即時計分板
+async function showLiveBoard() {
+  const scores = await apiCall('calculateHouseScores');
+  const individuals = await apiCall('calculateIndividualRanking');
+  if (!scores || !individuals) return;
+  const colors = { '信': 'from-red-500 to-red-700', '望': 'from-yellow-500 to-yellow-600', '愛': 'from-green-500 to-green-700', '恩': 'from-blue-500 to-blue-700' };
+  const trophies = ['🥇', '🥈', '🥉', '4️⃣'];
+  let html = `<h2 class="text-xl font-bold mb-4">📊 即時計分板</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    ${scores.map((s, i) => `
+      <div class="bg-gradient-to-br ${colors[s.name]} text-white p-5 rounded-xl shadow-lg">
+        <div class="flex justify-between"><div class="text-3xl">${trophies[i] || ''}</div>
+        <div class="text-xs bg-white/20 px-2 py-1 rounded">第 ${s.rank} 名</div></div>
+        <div class="text-3xl font-bold mt-3">${s.name}社</div>
+        <div class="text-4xl font-bold mt-1">${s.total}<span class="text-lg ml-1">分</span></div>
+        <div class="text-xs mt-3 opacity-90">比賽 ${s.score} + 參與 ${s.participation}</div>
+      </div>`).join('')}
+    </div>
+    <div class="text-center"><button onclick="showLiveBoard()" class="bg-slate-700 text-white px-4 py-2 rounded text-sm">🔄 重新整理</button></div>`;
+  setContent(html);
+}
+
+// (其他函數請依此模式改寫)
+
+  
 // ========== 學生管理 ==========
 async function showStudents() {
   const list = await apiCall('getAllStudents');
