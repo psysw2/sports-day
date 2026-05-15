@@ -918,8 +918,10 @@ function downloadFile(filename, content) {
 async function exportStudentsCSV() {
   const list = await apiCall('getAllStudents');
   if (!list) return;
-  const headers = ['StudentID','Name','Class','ClassNo','Gender','Group','House','DOB'];
-  const csv = toCSV(headers, list);
+  const headers = ['StudentID','Name','Class','ClassNo','DOB','Group','House','Gender'];
+  // ✅ 先把 DOB 格式化成 YYYY-MM-DD
+  const cleaned = list.map(s => ({ ...s, DOB: formatDOB(s.DOB) }));
+  const csv = toCSV(headers, cleaned);
   const ts = new Date().toISOString().slice(0,10);
   downloadFile(`students_${ts}.csv`, csv);
   toast(`已匯出 ${list.length} 筆學生`);
