@@ -55,15 +55,102 @@
   </div>
 </div>
 
+<!-- 通用編輯視窗 -->
+<div id="editModal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-screen overflow-y-auto">
+    <div class="flex justify-between items-center p-4 border-b">
+      <h3 id="modalTitle" class="text-lg font-bold">編輯</h3>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+    </div>
+    <div id="modalBody" class="p-4"></div>
+    <div class="p-4 border-t flex justify-end gap-2">
+      <button onclick="closeModal()" class="px-4 py-2 bg-slate-200 rounded hover:bg-slate-300 text-sm">取消</button>
+      <button id="modalSaveBtn" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm">儲存</button>
+    </div>
+  </div>
+</div>
+  
 <div id="toast" class="hidden fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-lg text-white z-50"></div>
 
 <script>
+
+// ========== 通用 Modal ==========
+function openModal(title, bodyHTML, onSave) {
+  document.getElementById('modalTitle').innerText = title;
+  document.getElementById('modalBody').innerHTML = bodyHTML;
+  document.getElementById('editModal').classList.remove('hidden');
+  document.getElementById('modalSaveBtn').onclick = onSave;
+}
+function closeModal() {
+  document.getElementById('editModal').classList.add('hidden');
+}  
+  
 // ⚠️ 改成你自己的 Apps Script Web App 網址
 const API_URL = 'https://script.google.com/macros/s/AKfycbzXrM7o4Z7aXNDvaChte4CZF_K1iJcqBE3LlkisO0aC55vMJsW8Avg1bFSIoChrgk7c1g/exec';
 
 let currentUser = null;
 let currentPhase = 1;
 
+function editStudent(s) {
+  const html = `
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-xs text-slate-500">學號(不可改)</label>
+        <input value="${s.StudentID || ''}" disabled class="w-full p-2 border rounded text-sm bg-slate-100">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">姓名</label>
+        <input id="ed_name" value="${s.Name || ''}" class="w-full p-2 border rounded text-sm">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">班級</label>
+        <input id="ed_class" value="${s.Class || ''}" class="w-full p-2 border rounded text-sm">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">座號</label>
+        <input id="ed_classNo" value="${s.ClassNo || ''}" class="w-full p-2 border rounded text-sm">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">性別</label>
+        <select id="ed_gender" class="w-full p-2 border rounded text-sm">
+          <option value="M" ${s.Gender === 'M' ? 'selected' : ''}>男</option>
+          <option value="F" ${s.Gender === 'F' ? 'selected' : ''}>女</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">組別</label>
+        <select id="ed_group" class="w-full p-2 border rounded text-sm">
+          ${['甲','乙','丙','丁','A','B','C','D'].map(g => 
+            `<option ${s.Group == g ? 'selected' : ''}>${g}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">社</label>
+        <select id="ed_house" class="w-full p-2 border rounded text-sm">
+          ${['信','望','愛','恩'].map(h => 
+            `<option ${s.House == h ? 'selected' : ''}>${h}</option>`).join('')}
+        </select>
+      </div>
+    </div>`;
+  
+  openModal(`編輯學生 - ${s.StudentID}`, html, async () => {
+    const res = await apiCall('updateStudent', {
+      studentID: s.StudentID,
+      name:      val('ed_name'),
+      className: val('ed_class'),
+      classNo:   val('ed_classNo'),
+      gender:    val('ed_gender'),
+      group:     val('ed_group'),
+      house:     val('ed_house')
+    });
+    if (res && res.success) {
+      toast('已更新');
+      closeModal();
+      showStudents();
+    }
+  });
+}
+  
 // ========== API 呼叫(取代 google.script.run)==========
 async function apiCall(action, params = {}) {
   showLoader(true);
@@ -359,8 +446,9 @@ async function showStudents() {
           <td class="p-2 text-center">${s.Gender || ''}</td>
           <td class="p-2 text-center">${s.Group || ''}</td>
           <td class="p-2 text-center">${s.House || ''}</td>
-          <td class="p-2 text-center">
-            <button onclick="delStudent('${s.StudentID || s.username}')" class="text-red-500 text-xs">刪除</button>
+          <td class="p-2 text-center whitespace-nowrap">
+          <button onclick='editStudent(${JSON.stringify(s).replace(/'/g, "&#39;")})' class="text-blue-500 text-xs mr-2">編輯</button>
+          <button onclick="delStudent('${s.StudentID || s.username}')" class="text-red-500 text-xs">刪除</button>
           </td>
         </tr>`).join('')}
       </tbody>
@@ -423,8 +511,9 @@ async function showEvents() {
           <td class="p-2 text-center">${e.Gender}</td>
           <td class="p-2 text-center">${e.Group}</td>
           <td class="p-2 text-center">${e.MaxPerHouse}</td>
-          <td class="p-2 text-center">
-            <button onclick="delEvent('${e.EventID}')" class="text-red-500 text-xs">刪除</button>
+          <td class="p-2 text-center whitespace-nowrap">
+          <button onclick='editEvent(${JSON.stringify(e).replace(/'/g, "&#39;")})' class="text-blue-500 text-xs mr-2">編輯</button>
+          <button onclick="delEvent('${e.EventID}')" class="text-red-500 text-xs">刪除</button>
           </td>
         </tr>`).join('')}
       </tbody>
@@ -451,33 +540,112 @@ async function delEvent(id) {
   if (res && res.success) { toast('已刪除'); showEvents(); }
 }
 
+function editEvent(e) {
+  const html = `
+    <div class="grid grid-cols-2 gap-3">
+      <div class="col-span-2">
+        <label class="text-xs text-slate-500">項目編號(不可改)</label>
+        <input value="${e.EventID || ''}" disabled class="w-full p-2 border rounded text-sm bg-slate-100">
+      </div>
+      <div class="col-span-2">
+        <label class="text-xs text-slate-500">項目名稱</label>
+        <input id="ee_name" value="${e.EventName || ''}" class="w-full p-2 border rounded text-sm">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">性別</label>
+        <select id="ee_gender" class="w-full p-2 border rounded text-sm">
+          <option value="M" ${e.Gender === 'M' ? 'selected' : ''}>男</option>
+          <option value="F" ${e.Gender === 'F' ? 'selected' : ''}>女</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">組別</label>
+        <select id="ee_group" class="w-full p-2 border rounded text-sm">
+          ${['甲','乙','丙','丁','A','B','C','D'].map(g => 
+            `<option ${e.Group == g ? 'selected' : ''}>${g}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">每社上限</label>
+        <input id="ee_max" type="number" value="${e.MaxPerHouse || 3}" class="w-full p-2 border rounded text-sm">
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">每組道數</label>
+        <input id="ee_lanes" type="number" value="${e.LanesPerHeat || 8}" class="w-full p-2 border rounded text-sm">
+      </div>
+    </div>`;
+  
+  openModal(`編輯項目 - ${e.EventID}`, html, async () => {
+    const res = await apiCall('updateEvent', {
+      eventID:      e.EventID,
+      eventName:    val('ee_name'),
+      gender:       val('ee_gender'),
+      group:        val('ee_group'),
+      maxPerHouse:  Number(val('ee_max')) || 3,
+      lanesPerHeat: Number(val('ee_lanes')) || 8
+    });
+    if (res && res.success) {
+      toast('已更新');
+      closeModal();
+      showEvents();
+    }
+  });
+}
+  
 // ========== 報名情況 ==========
 async function showAllRegs() {
   const list = await apiCall('getAllRegistrations');
   if (!list) return;
   let html = `
     <h2 class="text-xl font-bold mb-4">📋 全部報名情況</h2>
+    <p class="text-xs text-slate-500 mb-3">💡 直接修改 Heat / Lane 欄位後,點旁邊的「儲存」按鈕</p>
     <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-slate-100"><tr>
         <th class="p-2">項目</th><th class="p-2">學號</th><th class="p-2">姓名</th>
-        <th class="p-2">社</th><th class="p-2">Heat</th><th class="p-2">Lane</th>
+        <th class="p-2">社</th><th class="p-2">Heat</th><th class="p-2">Lane</th><th class="p-2">操作</th>
       </tr></thead>
       <tbody>
-      ${list.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-slate-400">暫無報名</td></tr>' :
+      ${list.length === 0 ? '<tr><td colspan="7" class="p-4 text-center text-slate-400">暫無報名</td></tr>' :
         list.map(r => `
-        <tr class="border-b">
+        <tr class="border-b" id="reg_row_${r.RegID}">
           <td class="p-2">${r.EventID} · ${r.EventName || ''}</td>
           <td class="p-2">${r.StudentID}</td>
           <td class="p-2">${r.Name || ''}</td>
           <td class="p-2 text-center">${r.House || ''}</td>
-          <td class="p-2 text-center">${r.Heat || '-'}</td>
-          <td class="p-2 text-center">${r.Lane || '-'}</td>
+          <td class="p-2 text-center">
+            <input id="reg_heat_${r.RegID}" type="number" value="${r.Heat || ''}" class="w-16 p-1 border rounded text-center text-sm">
+          </td>
+          <td class="p-2 text-center">
+            <input id="reg_lane_${r.RegID}" type="number" value="${r.Lane || ''}" class="w-16 p-1 border rounded text-center text-sm">
+          </td>
+          <td class="p-2 text-center">
+            <button onclick="saveReg('${r.RegID}')" class="text-blue-500 text-xs">儲存</button>
+          </td>
         </tr>`).join('')}
       </tbody>
     </table>
     </div>`;
   setContent(html);
+}
+
+async function saveReg(regID) {
+  const heat = val(`reg_heat_${regID}`);
+  const lane = val(`reg_lane_${regID}`);
+  const res = await apiCall('updateRegistration', {
+    regID,
+    heat: heat ? Number(heat) : '',
+    lane: lane ? Number(lane) : ''
+  });
+  if (res && res.success) {
+    toast('已儲存');
+    // 短暫高亮成功列
+    const row = document.getElementById(`reg_row_${regID}`);
+    if (row) {
+      row.classList.add('bg-green-50');
+      setTimeout(() => row.classList.remove('bg-green-50'), 1000);
+    }
+  }
 }
 
 // ========== 編組 ==========
