@@ -412,7 +412,14 @@ async function showStudents() {
   const list = await apiCall('getAllStudents');
   if (!list) return;
   let html = `
-    <h2 class="text-xl font-bold mb-4">👥 學生管理</h2>
+    <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+      <h2 class="text-xl font-bold">👥 學生管理</h2>
+      <div class="flex gap-2">
+        <button onclick="exportStudentsCSV()" class="bg-emerald-600 text-white px-3 py-2 rounded text-sm hover:bg-emerald-700">📤 匯出 CSV</button>
+        <button onclick="document.getElementById('importStudentFile').click()" class="bg-amber-600 text-white px-3 py-2 rounded text-sm hover:bg-amber-700">📥 匯入 CSV</button>
+        <input type="file" id="importStudentFile" accept=".csv" class="hidden" onchange="importStudentsCSV(this)">
+      </div>
+    </div>
     <div class="bg-slate-50 p-4 rounded-lg mb-4">
       <h3 class="font-semibold mb-2">新增學生</h3>
       <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
@@ -482,7 +489,14 @@ async function showEvents() {
   const list = await apiCall('getAllEvents');
   if (!list) return;
   let html = `
-    <h2 class="text-xl font-bold mb-4">🏆 項目管理</h2>
+    <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+      <h2 class="text-xl font-bold">🏆 項目管理</h2>
+      <div class="flex gap-2">
+        <button onclick="exportEventsCSV()" class="bg-emerald-600 text-white px-3 py-2 rounded text-sm hover:bg-emerald-700">📤 匯出 CSV</button>
+        <button onclick="document.getElementById('importEventFile').click()" class="bg-amber-600 text-white px-3 py-2 rounded text-sm hover:bg-amber-700">📥 匯入 CSV</button>
+        <input type="file" id="importEventFile" accept=".csv" class="hidden" onchange="importEventsCSV(this)">
+      </div>
+    </div>
     <div class="bg-slate-50 p-4 rounded-lg mb-4">
       <h3 class="font-semibold mb-2">新增項目</h3>
       <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
@@ -813,6 +827,113 @@ async function saveGeneral() {
   });
   if (res && res.success) toast('已儲存設定');
 }
+
 </script>
+// ============================================================
+// ========== CSV 匯出 / 匯入 工具 ==========
+// ============================================================
+
+// 將陣列轉成 CSV 字串(含 BOM 讓 Excel 正確讀中文)
+function toCSV(headers, rows) {
+  const escape = v => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.join(',')];
+  rows.forEach(r => lines.push(headers.map(h => escape(r[h])).join(',')));
+  return '\uFEFF' + lines.join('\n');
+}
+
+// 解析 CSV 字串為物件陣列
+function parseCSV(text) {
+  text = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+  const rows = [];
+  let cur = [], field = '', inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuote) {
+      if (c === '"' && text[i+1] === '"') { field += '"'; i++; }
+      else if (c === '"') inQuote = false;
+      else field += c;
+    } else {
+      if (c === '"') inQuote = true;
+      else if (c === ',') { cur.push(field); field = ''; }
+      else if (c === '\n') { cur.push(field); rows.push(cur); cur = []; field = ''; }
+      else field += c;
+    }
+  }
+  if (field !== '' || cur.length) { cur.push(field); rows.push(cur); }
+  if (rows.length === 0) return [];
+  const headers = rows.shift();
+  return rows.filter(r => r.some(v => v !== '')).map(r => {
+    const obj = {};
+    headers.forEach((h, i) => obj[h.trim()] = (r[i] || '').trim());
+    return obj;
+  });
+}
+
+// 觸發瀏覽器下載
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ===== 學生 匯出 / 匯入 =====
+async function exportStudentsCSV() {
+  const list = await apiCall('getAllStudents');
+  if (!list) return;
+  const headers = ['StudentID','Name','Class','ClassNo','Gender','Group','House'];
+  const csv = toCSV(headers, list);
+  const ts = new Date().toISOString().slice(0,10);
+  downloadFile(`students_${ts}.csv`, csv);
+  toast(`已匯出 ${list.length} 筆學生`);
+}
+
+async function importStudentsCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const text = await file.text();
+  input.value = ''; // 清空避免下次選同檔不觸發
+  const rows = parseCSV(text);
+  if (rows.length === 0) { toast('CSV 為空', 'error'); return; }
+  if (!confirm(`即將匯入 ${rows.length} 筆學生資料,確定?\n(已存在學號將被更新)`)) return;
+  const res = await apiCall('importStudents', { students: rows });
+  if (res && res.success) {
+    toast(`匯入完成:新增 ${res.added || 0} / 更新 ${res.updated || 0}`);
+    showStudents();
+  }
+}
+
+// ===== 項目 匯出 / 匯入 =====
+async function exportEventsCSV() {
+  const list = await apiCall('getAllEvents');
+  if (!list) return;
+  const headers = ['EventID','EventName','Gender','Group','MaxPerHouse','LanesPerHeat'];
+  const csv = toCSV(headers, list);
+  const ts = new Date().toISOString().slice(0,10);
+  downloadFile(`events_${ts}.csv`, csv);
+  toast(`已匯出 ${list.length} 筆項目`);
+}
+
+async function importEventsCSV(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const text = await file.text();
+  input.value = '';
+  const rows = parseCSV(text);
+  if (rows.length === 0) { toast('CSV 為空', 'error'); return; }
+  if (!confirm(`即將匯入 ${rows.length} 筆項目資料,確定?\n(已存在編號將被更新)`)) return;
+  const res = await apiCall('importEvents', { events: rows });
+  if (res && res.success) {
+    toast(`匯入完成:新增 ${res.added || 0} / 更新 ${res.updated || 0}`);
+    showEvents();
+  }
+}
 </body>
 </html>
