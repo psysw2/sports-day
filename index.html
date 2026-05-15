@@ -74,6 +74,21 @@
 
 <script>
 
+// 統一日期格式為 YYYY-MM-DD
+function formatDOB(v) {
+  if (!v) return '';
+  // 已經是字串(例如 "2010-05-20")就直接回傳前 10 碼
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // 嘗試解析(例如後端回傳 ISO 字串或 Date)
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+  
 // ========== 通用 Modal ==========
 function openModal(title, bodyHTML, onSave) {
   document.getElementById('modalTitle').innerText = title;
@@ -131,6 +146,10 @@ function editStudent(s) {
             `<option ${s.House == h ? 'selected' : ''}>${h}</option>`).join('')}
         </select>
       </div>
+      <div>
+        <label class="text-xs text-slate-500">出生日期</label>
+        <input id="ed_dob" type="date" value="${formatDOB(s.DOB)}" class="w-full p-2 border rounded text-sm">
+      </div>
     </div>`;
   
   openModal(`編輯學生 - ${s.StudentID}`, html, async () => {
@@ -141,7 +160,8 @@ function editStudent(s) {
       classNo:   val('ed_classNo'),
       gender:    val('ed_gender'),
       group:     val('ed_group'),
-      house:     val('ed_house')
+      house:     val('ed_house'),
+      dob:       val('ed_dob')   // ✅ 新增
     });
     if (res && res.success) {
       toast('已更新');
@@ -422,7 +442,7 @@ async function showStudents() {
     </div>
     <div class="bg-slate-50 p-4 rounded-lg mb-4">
       <h3 class="font-semibold mb-2">新增學生</h3>
-      <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
+      <div class="grid grid-cols-2 md:grid-cols-7 gap-2">
         <input id="s_id"     placeholder="學號"   class="p-2 border rounded text-sm">
         <input id="s_name"   placeholder="姓名"   class="p-2 border rounded text-sm">
         <input id="s_class"  placeholder="班級"   class="p-2 border rounded text-sm">
@@ -435,31 +455,41 @@ async function showStudents() {
         <select id="s_house" class="p-2 border rounded text-sm">
           <option>信</option><option>望</option><option>愛</option><option>恩</option>
         </select>
+        <input id="s_dob" type="date" class="p-2 border rounded text-sm">
       </div>
       <button onclick="addStudent()" class="mt-2 bg-indigo-600 text-white px-4 py-2 rounded text-sm">新增</button>
     </div>
     <div class="overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-100">
-        <tr><th class="p-2">學號</th><th class="p-2">姓名</th><th class="p-2">班級</th>
-        <th class="p-2">性別</th><th class="p-2">組別</th><th class="p-2">社</th><th class="p-2"></th></tr>
-      </thead>
-      <tbody>
-      ${list.map(s => `
-        <tr class="border-b">
-          <td class="p-2">${s.StudentID || s.username || ''}</td>
-          <td class="p-2">${s.Name || s.name || ''}</td>
-          <td class="p-2 text-center">${s.Class || ''}</td>
-          <td class="p-2 text-center">${s.Gender || ''}</td>
-          <td class="p-2 text-center">${s.Group || ''}</td>
-          <td class="p-2 text-center">${s.House || ''}</td>
-          <td class="p-2 text-center whitespace-nowrap">
-          <button onclick='editStudent(${JSON.stringify(s).replace(/'/g, "&#39;")})' class="text-blue-500 text-xs mr-2">編輯</button>
-          <button onclick="delStudent('${s.StudentID || s.username}')" class="text-red-500 text-xs">刪除</button>
-          </td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
+  <thead class="bg-slate-100">
+    <tr>
+      <th class="p-2">學號</th>
+      <th class="p-2">姓名</th>
+      <th class="p-2">班級</th>
+      <th class="p-2">性別</th>
+      <th class="p-2">組別</th>
+      <th class="p-2">社</th>
+      <th class="p-2">出生日期</th>   <!-- ✅ 新增 -->
+      <th class="p-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+  ${list.map(s => `
+    <tr class="border-b">
+      <td class="p-2">${s.StudentID || s.username || ''}</td>
+      <td class="p-2">${s.Name || s.name || ''}</td>
+      <td class="p-2 text-center">${s.Class || ''}</td>
+      <td class="p-2 text-center">${s.Gender || ''}</td>
+      <td class="p-2 text-center">${s.Group || ''}</td>
+      <td class="p-2 text-center">${s.House || ''}</td>
+      <td class="p-2 text-center">${formatDOB(s.DOB) || ''}</td>   <!-- ✅ 新增 -->
+      <td class="p-2 text-center whitespace-nowrap">
+        <button onclick='editStudent(${JSON.stringify(s).replace(/'/g, "&#39;")})' class="text-blue-500 text-xs mr-2">編輯</button>
+        <button onclick="delStudent('${s.StudentID || s.username}')" class="text-red-500 text-xs">刪除</button>
+      </td>
+    </tr>`).join('')}
+  </tbody>
+</table>
     </div>`;
   setContent(html);
 }
@@ -471,7 +501,8 @@ async function addStudent() {
     className: val('s_class'),
     gender:    val('s_gender'),
     group:     val('s_group'),
-    house:     val('s_house')
+    house:     val('s_house'),
+    dob:       val('s_dob')
   };
   if (!data.studentID || !data.name) { toast('請填學號和姓名', 'error'); return; }
   const res = await apiCall('addStudent', data);
@@ -887,7 +918,7 @@ function downloadFile(filename, content) {
 async function exportStudentsCSV() {
   const list = await apiCall('getAllStudents');
   if (!list) return;
-  const headers = ['StudentID','Name','Class','ClassNo','Gender','Group','House'];
+  const headers = ['StudentID','Name','Class','ClassNo','Gender','Group','House','DOB'];
   const csv = toCSV(headers, list);
   const ts = new Date().toISOString().slice(0,10);
   downloadFile(`students_${ts}.csv`, csv);
