@@ -257,68 +257,335 @@ async function withdraw(regID) {
 }
 
 // ========== 老師後台(略,結構同上,把 google.script.run.xxx() 換成 await apiCall('xxx', {...}) ==========
-// 為節省篇幅,以下函數請參照同樣模式改寫:
-// showPhaseControl, switchPhase, showStudents, addStudent, showEvents, addEvent, delEvent,
-// showAllRegs, showHeatAssign, autoHeat, showScoring, loadScoringForm, submitScores,
-// showLiveBoard, showSettings, addRankRow, saveRankPoints, saveGeneral
+// ============================================================
+// ========== 以下為補齊的老師/管理員後台功能 ==========
+// ============================================================
 
-// 範例:階段控制
-async function showPhaseControl() {
-  const phases = [
-    { num: 1, name: '報名階段', desc: '學生選擇項目' },
-    { num: 2, name: '審視編組', desc: '結算社參與分,自動編 Heat' },
-    { num: 3, name: '比賽計分', desc: '輸入成績' }
-  ];
-  let html = `<h2 class="text-xl font-bold mb-4">⚡ 階段控制</h2>
-    <div class="grid md:grid-cols-3 gap-4">
-    ${phases.map(p => `
-      <div class="border-2 rounded-lg p-5 ${currentPhase == p.num ? 'border-indigo-500 bg-indigo-50' : ''}">
-        <div class="text-xs text-slate-500">階段 ${p.num}</div>
-        <div class="text-lg font-bold mt-1">${p.name}</div>
-        <div class="text-sm text-slate-600 mt-2">${p.desc}</div>
-        ${currentPhase == p.num 
-          ? '<div class="mt-4 text-indigo-600 font-semibold">● 目前階段</div>'
-          : `<button onclick="switchPhase(${p.num})" class="mt-4 bg-slate-700 text-white px-3 py-1 rounded text-sm">切換</button>`}
-      </div>`).join('')}
+// ========== 學生管理 ==========
+async function showStudents() {
+  const list = await apiCall('getAllStudents');
+  if (!list) return;
+  let html = `
+    <h2 class="text-xl font-bold mb-4">👥 學生管理</h2>
+    <div class="bg-slate-50 p-4 rounded-lg mb-4">
+      <h3 class="font-semibold mb-2">新增學生</h3>
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-2">
+        <input id="s_id"     placeholder="學號"   class="p-2 border rounded text-sm">
+        <input id="s_name"   placeholder="姓名"   class="p-2 border rounded text-sm">
+        <input id="s_class"  placeholder="班級"   class="p-2 border rounded text-sm">
+        <select id="s_gender" class="p-2 border rounded text-sm">
+          <option value="M">男</option><option value="F">女</option>
+        </select>
+        <select id="s_group" class="p-2 border rounded text-sm">
+          <option>甲</option><option>乙</option><option>丙</option><option>丁</option>
+        </select>
+        <select id="s_house" class="p-2 border rounded text-sm">
+          <option>信</option><option>望</option><option>愛</option><option>恩</option>
+        </select>
+      </div>
+      <button onclick="addStudent()" class="mt-2 bg-indigo-600 text-white px-4 py-2 rounded text-sm">新增</button>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-100">
+        <tr><th class="p-2">學號</th><th class="p-2">姓名</th><th class="p-2">班級</th>
+        <th class="p-2">性別</th><th class="p-2">組別</th><th class="p-2">社</th><th class="p-2"></th></tr>
+      </thead>
+      <tbody>
+      ${list.map(s => `
+        <tr class="border-b">
+          <td class="p-2">${s.StudentID || s.username || ''}</td>
+          <td class="p-2">${s.Name || s.name || ''}</td>
+          <td class="p-2 text-center">${s.Class || ''}</td>
+          <td class="p-2 text-center">${s.Gender || ''}</td>
+          <td class="p-2 text-center">${s.Group || ''}</td>
+          <td class="p-2 text-center">${s.House || ''}</td>
+          <td class="p-2 text-center">
+            <button onclick="delStudent('${s.StudentID || s.username}')" class="text-red-500 text-xs">刪除</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
     </div>`;
   setContent(html);
 }
 
-async function switchPhase(p) {
-  if (!confirm(`確定切換到階段 ${p}?`)) return;
-  const res = await apiCall('changePhase', { newPhase: p });
-  if (res && res.success) {
-    currentPhase = res.phase;
-    sessionStorage.setItem('phase', currentPhase);
-    updateUserInfo();
-    toast('階段已切換');
-    showPhaseControl();
-  }
+async function addStudent() {
+  const data = {
+    studentID: val('s_id'),
+    name:      val('s_name'),
+    className: val('s_class'),
+    gender:    val('s_gender'),
+    group:     val('s_group'),
+    house:     val('s_house')
+  };
+  if (!data.studentID || !data.name) { toast('請填學號和姓名', 'error'); return; }
+  const res = await apiCall('addStudent', data);
+  if (res && res.success) { toast('已新增'); showStudents(); }
 }
 
-// 範例:即時計分板
-async function showLiveBoard() {
-  const scores = await apiCall('calculateHouseScores');
-  const individuals = await apiCall('calculateIndividualRanking');
-  if (!scores || !individuals) return;
-  const colors = { '信': 'from-red-500 to-red-700', '望': 'from-yellow-500 to-yellow-600', '愛': 'from-green-500 to-green-700', '恩': 'from-blue-500 to-blue-700' };
-  const trophies = ['🥇', '🥈', '🥉', '4️⃣'];
-  let html = `<h2 class="text-xl font-bold mb-4">📊 即時計分板</h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    ${scores.map((s, i) => `
-      <div class="bg-gradient-to-br ${colors[s.name]} text-white p-5 rounded-xl shadow-lg">
-        <div class="flex justify-between"><div class="text-3xl">${trophies[i] || ''}</div>
-        <div class="text-xs bg-white/20 px-2 py-1 rounded">第 ${s.rank} 名</div></div>
-        <div class="text-3xl font-bold mt-3">${s.name}社</div>
-        <div class="text-4xl font-bold mt-1">${s.total}<span class="text-lg ml-1">分</span></div>
-        <div class="text-xs mt-3 opacity-90">比賽 ${s.score} + 參與 ${s.participation}</div>
-      </div>`).join('')}
+async function delStudent(id) {
+  if (!confirm('確定刪除?')) return;
+  const res = await apiCall('deleteStudent', { studentID: id });
+  if (res && res.success) { toast('已刪除'); showStudents(); }
+}
+
+// ========== 項目管理 ==========
+async function showEvents() {
+  const list = await apiCall('getAllEvents');
+  if (!list) return;
+  let html = `
+    <h2 class="text-xl font-bold mb-4">🏆 項目管理</h2>
+    <div class="bg-slate-50 p-4 rounded-lg mb-4">
+      <h3 class="font-semibold mb-2">新增項目</h3>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <input id="e_id"   placeholder="項目編號" class="p-2 border rounded text-sm">
+        <input id="e_name" placeholder="項目名稱" class="p-2 border rounded text-sm">
+        <select id="e_gender" class="p-2 border rounded text-sm">
+          <option value="M">男</option><option value="F">女</option>
+        </select>
+        <select id="e_group" class="p-2 border rounded text-sm">
+          <option>甲</option><option>乙</option><option>丙</option><option>丁</option>
+        </select>
+        <input id="e_max" type="number" value="3" placeholder="每社上限" class="p-2 border rounded text-sm">
+      </div>
+      <button onclick="addEvent()" class="mt-2 bg-indigo-600 text-white px-4 py-2 rounded text-sm">新增</button>
     </div>
-    <div class="text-center"><button onclick="showLiveBoard()" class="bg-slate-700 text-white px-4 py-2 rounded text-sm">🔄 重新整理</button></div>`;
+    <table class="w-full text-sm">
+      <thead class="bg-slate-100"><tr>
+        <th class="p-2">編號</th><th class="p-2">名稱</th><th class="p-2">性別</th>
+        <th class="p-2">組別</th><th class="p-2">每社上限</th><th class="p-2"></th>
+      </tr></thead>
+      <tbody>
+      ${list.map(e => `
+        <tr class="border-b">
+          <td class="p-2">${e.EventID}</td>
+          <td class="p-2">${e.EventName}</td>
+          <td class="p-2 text-center">${e.Gender}</td>
+          <td class="p-2 text-center">${e.Group}</td>
+          <td class="p-2 text-center">${e.MaxPerHouse}</td>
+          <td class="p-2 text-center">
+            <button onclick="delEvent('${e.EventID}')" class="text-red-500 text-xs">刪除</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
   setContent(html);
 }
 
-// (其他函數請依此模式改寫)
+async function addEvent() {
+  const data = {
+    eventID:     val('e_id'),
+    eventName:   val('e_name'),
+    gender:      val('e_gender'),
+    group:       val('e_group'),
+    maxPerHouse: Number(val('e_max')) || 3
+  };
+  if (!data.eventID || !data.eventName) { toast('請填編號和名稱', 'error'); return; }
+  const res = await apiCall('addEvent', data);
+  if (res && res.success) { toast('已新增'); showEvents(); }
+}
+
+async function delEvent(id) {
+  if (!confirm('確定刪除?')) return;
+  const res = await apiCall('deleteEvent', { eventID: id });
+  if (res && res.success) { toast('已刪除'); showEvents(); }
+}
+
+// ========== 報名情況 ==========
+async function showAllRegs() {
+  const list = await apiCall('getAllRegistrations');
+  if (!list) return;
+  let html = `
+    <h2 class="text-xl font-bold mb-4">📋 全部報名情況</h2>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-100"><tr>
+        <th class="p-2">項目</th><th class="p-2">學號</th><th class="p-2">姓名</th>
+        <th class="p-2">社</th><th class="p-2">Heat</th><th class="p-2">Lane</th>
+      </tr></thead>
+      <tbody>
+      ${list.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-slate-400">暫無報名</td></tr>' :
+        list.map(r => `
+        <tr class="border-b">
+          <td class="p-2">${r.EventID} · ${r.EventName || ''}</td>
+          <td class="p-2">${r.StudentID}</td>
+          <td class="p-2">${r.Name || ''}</td>
+          <td class="p-2 text-center">${r.House || ''}</td>
+          <td class="p-2 text-center">${r.Heat || '-'}</td>
+          <td class="p-2 text-center">${r.Lane || '-'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    </div>`;
+  setContent(html);
+}
+
+// ========== 編組 ==========
+async function showHeatAssign() {
+  let html = `
+    <h2 class="text-xl font-bold mb-4">🎯 編組(自動安排 Heat / Lane)</h2>
+    <div class="bg-yellow-50 border border-yellow-300 p-4 rounded-lg mb-4 text-sm">
+      ⚠️ 點擊「自動編組」會根據報名清單自動分配 Heat 和 Lane,
+      <br>建議在<b>階段二</b>執行,執行後階段一報名將不再受理。
+    </div>
+    <button onclick="autoHeat()" class="bg-indigo-600 text-white px-5 py-2 rounded">🚀 開始自動編組</button>
+    <div id="heatResult" class="mt-4"></div>`;
+  setContent(html);
+}
+
+async function autoHeat() {
+  if (!confirm('確定執行自動編組?')) return;
+  const res = await apiCall('autoAssignHeats');
+  if (!res) return;
+  if (res.success) {
+    toast('編組完成');
+    document.getElementById('heatResult').innerHTML =
+      `<div class="bg-green-50 border border-green-300 p-3 rounded text-sm">✅ ${res.message || '已完成編組'}</div>`;
+  } else {
+    toast(res.message || '失敗', 'error');
+  }
+}
+
+// ========== 即時計分 ==========
+async function showScoring() {
+  const events = await apiCall('getAllEvents');
+  if (!events) return;
+  let html = `
+    <h2 class="text-xl font-bold mb-4">🏅 即時計分</h2>
+    <div class="mb-4">
+      <label class="text-sm text-slate-600">選擇項目:</label>
+      <select id="sc_event" onchange="loadScoringForm()" class="p-2 border rounded ml-2">
+        <option value="">-- 請選擇 --</option>
+        ${events.map(e => `<option value="${e.EventID}">${e.EventID} · ${e.EventName}</option>`).join('')}
+      </select>
+    </div>
+    <div id="scoringForm"></div>`;
+  setContent(html);
+}
+
+async function loadScoringForm() {
+  const eventID = val('sc_event');
+  if (!eventID) { document.getElementById('scoringForm').innerHTML = ''; return; }
+  const list = await apiCall('getEventRegistrations', { eventID });
+  if (!list) return;
+  // 依 Heat 分組
+  const heats = {};
+  list.forEach(r => {
+    const h = r.Heat || '未編組';
+    if (!heats[h]) heats[h] = [];
+    heats[h].push(r);
+  });
+  let html = '';
+  Object.keys(heats).sort().forEach(h => {
+    html += `<div class="mb-4">
+      <h3 class="font-semibold mb-2">Heat ${h}</h3>
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100"><tr>
+          <th class="p-2">Lane</th><th class="p-2">學號</th><th class="p-2">姓名</th>
+          <th class="p-2">社</th><th class="p-2">名次</th><th class="p-2">成績</th>
+        </tr></thead><tbody>
+      ${heats[h].sort((a,b)=>(a.Lane||0)-(b.Lane||0)).map(r => `
+        <tr class="border-b">
+          <td class="p-2 text-center">${r.Lane || '-'}</td>
+          <td class="p-2">${r.StudentID}</td>
+          <td class="p-2">${r.Name || ''}</td>
+          <td class="p-2 text-center">${r.House || ''}</td>
+          <td class="p-2"><input id="rank_${r.RegID}" type="number" min="1" value="${r.Rank||''}" class="w-16 p-1 border rounded text-center"></td>
+          <td class="p-2"><input id="result_${r.RegID}" value="${r.Result||''}" class="w-24 p-1 border rounded"></td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  });
+  html += `<button onclick='submitScores(${JSON.stringify(list.map(r=>r.RegID))})' class="bg-indigo-600 text-white px-5 py-2 rounded">💾 儲存成績</button>`;
+  document.getElementById('scoringForm').innerHTML = html;
+}
+
+async function submitScores(regIDs) {
+  const scores = regIDs.map(id => ({
+    regID: id,
+    rank:   val(`rank_${id}`),
+    result: val(`result_${id}`)
+  }));
+  const res = await apiCall('submitScores', { scores });
+  if (res && res.success) toast('成績已儲存');
+}
+
+// ========== 系統設定 ==========
+async function showSettings() {
+  const cfg = await apiCall('getSettings');
+  if (!cfg) return;
+  const ranks = cfg.rankPoints || [
+    { rank: 1, points: 9 }, { rank: 2, points: 7 },
+    { rank: 3, points: 6 }, { rank: 4, points: 5 },
+    { rank: 5, points: 4 }, { rank: 6, points: 3 }
+  ];
+  let html = `
+    <h2 class="text-xl font-bold mb-4">⚙️ 系統設定</h2>
+
+    <div class="bg-slate-50 p-4 rounded-lg mb-4">
+      <h3 class="font-semibold mb-2">一般設定</h3>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-slate-500">參與分(每人每項)</label>
+          <input id="g_participation" type="number" value="${cfg.participationPoints || 1}" class="w-full p-2 border rounded text-sm">
+        </div>
+        <div>
+          <label class="text-xs text-slate-500">每位學生最多報名項目</label>
+          <input id="g_maxEvents" type="number" value="${cfg.maxEventsPerStudent || 3}" class="w-full p-2 border rounded text-sm">
+        </div>
+      </div>
+      <button onclick="saveGeneral()" class="mt-3 bg-indigo-600 text-white px-4 py-2 rounded text-sm">儲存一般設定</button>
+    </div>
+
+    <div class="bg-slate-50 p-4 rounded-lg">
+      <h3 class="font-semibold mb-2">名次積分表</h3>
+      <table class="w-full text-sm mb-3" id="rankTable">
+        <thead class="bg-slate-200"><tr><th class="p-2">名次</th><th class="p-2">積分</th><th></th></tr></thead>
+        <tbody>
+          ${ranks.map((r, i) => `
+            <tr><td class="p-2 text-center"><input value="${r.rank}" class="w-16 p-1 border rounded text-center"></td>
+            <td class="p-2 text-center"><input value="${r.points}" class="w-16 p-1 border rounded text-center"></td>
+            <td class="p-2 text-center"><button onclick="this.closest('tr').remove()" class="text-red-500 text-xs">移除</button></td></tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <button onclick="addRankRow()" class="bg-slate-600 text-white px-3 py-1 rounded text-sm">+ 新增列</button>
+      <button onclick="saveRankPoints()" class="bg-indigo-600 text-white px-4 py-2 rounded text-sm ml-2">儲存積分表</button>
+    </div>`;
+  setContent(html);
+}
+
+function addRankRow() {
+  const tbody = document.querySelector('#rankTable tbody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td class="p-2 text-center"><input class="w-16 p-1 border rounded text-center"></td>
+    <td class="p-2 text-center"><input class="w-16 p-1 border rounded text-center"></td>
+    <td class="p-2 text-center"><button onclick="this.closest('tr').remove()" class="text-red-500 text-xs">移除</button></td>`;
+  tbody.appendChild(tr);
+}
+
+async function saveRankPoints() {
+  const rows = document.querySelectorAll('#rankTable tbody tr');
+  const data = [];
+  rows.forEach(tr => {
+    const ins = tr.querySelectorAll('input');
+    if (ins[0].value && ins[1].value) {
+      data.push({ rank: Number(ins[0].value), points: Number(ins[1].value) });
+    }
+  });
+  const res = await apiCall('saveRankPoints', { rankPoints: data });
+  if (res && res.success) toast('已儲存名次積分表');
+}
+
+async function saveGeneral() {
+  const res = await apiCall('saveSettings', {
+    participationPoints: Number(val('g_participation')),
+    maxEventsPerStudent: Number(val('g_maxEvents'))
+  });
+  if (res && res.success) toast('已儲存設定');
+}
 </script>
 </body>
 </html>
