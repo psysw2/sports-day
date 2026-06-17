@@ -637,22 +637,78 @@ function editEvent(e) {
   });
 }
   
-// ========== 報名情況 ==========
+// ========== 報名情況(含篩選)==========
+let _allRegsCache = [];   // 把資料快取起來,篩選時不用重打 API
+
 async function showAllRegs() {
   const list = await apiCall('getAllRegistrations');
   if (!list) return;
+  _allRegsCache = list;
+
+  // 從資料中萃取出「所有出現過的項目 / 社 / Heat」當篩選選項
+  const eventMap = {};
+  const houseSet = new Set();
+  const heatSet  = new Set();
+  list.forEach(r => {
+    if (r.EventID) eventMap[r.EventID] = r.EventName || '';
+    if (r.House)   houseSet.add(r.House);
+    if (r.Heat)    heatSet.add(r.Heat);
+  });
+  const eventOptions = Object.keys(eventMap).sort()
+    .map(id => `<option value="${id}">${id} · ${eventMap[id]}</option>`).join('');
+  const houseOptions = [...houseSet].sort()
+    .map(h => `<option value="${h}">${h}</option>`).join('');
+  const heatOptions  = [...heatSet].sort((a,b)=>a-b)
+    .map(h => `<option value="${h}">Heat ${h}</option>`).join('');
+
   let html = `
     <h2 class="text-xl font-bold mb-4">📋 全部報名情況</h2>
+
+    <!-- 篩選列 -->
+    <div class="bg-slate-50 p-3 rounded-lg mb-3 flex flex-wrap gap-2 items-center">
+      <span class="text-sm font-semibold">🔍 篩選:</span>
+      <select id="flt_event" onchange="applyRegsFilter()" class="p-2 border rounded text-sm">
+        <option value="">全部項目</option>${eventOptions}
+      </select>
+      <select id="flt_house" onchange="applyRegsFilter()" class="p-2 border rounded text-sm">
+        <option value="">全部社</option>${houseOptions}
+      </select>
+      <select id="flt_heat" onchange="applyRegsFilter()" class="p-2 border rounded text-sm">
+        <option value="">全部 Heat</option>
+        <option value="__none__">未編組</option>
+        ${heatOptions}
+      </select>
+      <input id="flt_keyword" oninput="applyRegsFilter()" placeholder="搜尋學號/姓名"
+             class="p-2 border rounded text-sm flex-1 min-w-32">
+      <button onclick="resetRegsFilter()" class="bg-slate-200 px-3 py-2 rounded text-sm hover:bg-slate-300">清除</button>
+      <span id="flt_count" class="text-xs text-slate-500 ml-auto"></span>
+    </div>
+
     <p class="text-xs text-slate-500 mb-3">💡 直接修改 Heat / Lane 欄位後,點旁邊的「儲存」按鈕</p>
-    <div class="overflow-x-auto">
+    <div id="regsTableWrap" class="overflow-x-auto"></div>`;
+  setContent(html);
+  renderRegsTable(list);
+}
+
+// 把表格本體獨立出來,方便篩選時重畫
+function renderRegsTable(list) {
+  const wrap = document.getElementById('regsTableWrap');
+  const countEl = document.getElementById('flt_count');
+  if (countEl) countEl.innerText = `共 ${list.length} 筆`;
+
+  if (list.length === 0) {
+    wrap.innerHTML = `<div class="p-6 text-center text-slate-400">沒有符合條件的報名</div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
     <table class="w-full text-sm">
       <thead class="bg-slate-100"><tr>
         <th class="p-2">項目</th><th class="p-2">學號</th><th class="p-2">姓名</th>
         <th class="p-2">社</th><th class="p-2">Heat</th><th class="p-2">Lane</th><th class="p-2">操作</th>
       </tr></thead>
       <tbody>
-      ${list.length === 0 ? '<tr><td colspan="7" class="p-4 text-center text-slate-400">暫無報名</td></tr>' :
-        list.map(r => `
+      ${list.map(r => `
         <tr class="border-b" id="reg_row_${r.RegID}">
           <td class="p-2">${r.EventID} · ${r.EventName || ''}</td>
           <td class="p-2">${r.StudentID}</td>
@@ -669,28 +725,38 @@ async function showAllRegs() {
           </td>
         </tr>`).join('')}
       </tbody>
-    </table>
-    </div>`;
-  setContent(html);
+    </table>`;
 }
 
-async function saveReg(regID) {
-  const heat = val(`reg_heat_${regID}`);
-  const lane = val(`reg_lane_${regID}`);
-  const res = await apiCall('updateRegistration', {
-    regID,
-    heat: heat ? Number(heat) : '',
-    lane: lane ? Number(lane) : ''
-  });
-  if (res && res.success) {
-    toast('已儲存');
-    // 短暫高亮成功列
-    const row = document.getElementById(`reg_row_${regID}`);
-    if (row) {
-      row.classList.add('bg-green-50');
-      setTimeout(() => row.classList.remove('bg-green-50'), 1000);
+// 套用篩選條件
+function applyRegsFilter() {
+  const ev = val('flt_event');
+  const ho = val('flt_house');
+  const ht = val('flt_heat');
+  const kw = val('flt_keyword').toLowerCase();
+
+  const filtered = _allRegsCache.filter(r => {
+    if (ev && r.EventID != ev) return false;
+    if (ho && r.House   != ho) return false;
+    if (ht === '__none__') {
+      if (r.Heat) return false;          // 只看未編組
+    } else if (ht && String(r.Heat) != ht) return false;
+    if (kw) {
+      const hay = `${r.StudentID || ''} ${r.Name || ''}`.toLowerCase();
+      if (!hay.includes(kw)) return false;
     }
-  }
+    return true;
+  });
+  renderRegsTable(filtered);
+}
+
+// 清除篩選
+function resetRegsFilter() {
+  document.getElementById('flt_event').value = '';
+  document.getElementById('flt_house').value = '';
+  document.getElementById('flt_heat').value = '';
+  document.getElementById('flt_keyword').value = '';
+  renderRegsTable(_allRegsCache);
 }
 
 // ========== 編組 ==========
